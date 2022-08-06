@@ -35,3 +35,11 @@ Error reporting now works, a simple implemented lexer and some extra C and Pytho
 
 "Python List Comprehension for Better Error Reporting in My Language — Porth Ep.02"
 https://www.youtube.com/watch?v=Gla_7umYcPQ
+
+## Tutorial 3, conditions and loops
+Folder stage003_conditions_loops
+
+Some description
+
+"Generating Assembly with Python — Conditions and Loops — Porth Ep.03"
+https://www.youtube.com/watch?v=QlKSCn-Al6Q
