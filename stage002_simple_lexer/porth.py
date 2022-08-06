@@ -2,6 +2,8 @@
 
 import sys
 import subprocess
+import shlex # Simple lexical analysis
+from os import path
 
 iota_counter = 0
 
@@ -128,19 +130,21 @@ def compile_program(program, out_file_path):
         out.write("    mov  rdi, 0\n")
         out.write("    syscall\n")
 
-# Print usage information
-def usage(program):
-    print("Usage: %s <subcommand> [args]" % program)
-    print("     sim <file>        Simulate the program")
-    print("     com <file>        Compile the program")
-
 # Call external programs and print a joined list
-def call_cmd(cmd):
-    print(" ".join(cmd))
+def call_echoed(cmd):
+    print("[CMD] %s" % " ".join(map(shlex.quote, cmd)))
     subprocess.call(cmd)
 
-def parse_word_as_op(word):
-    assert COUNT_OPS == 4, "Exhaustive op handling in parse_word_as_op"
+# Print usage information
+def usage(compiler_name):
+    print("Usage: %s <subcommand> [args]" % compiler_name)
+    print("     sim <file>        Simulate the program")
+    print("     com <file>        Compile the program")
+    print("     help              Print this help to stdout and exit with 0 code")
+
+def parse_token_as_op(token):
+    (file_path, row, col, word) = token # Destructuring an enumeration?
+    assert COUNT_OPS == 4, "Exhaustive op handling in parse_token_as_op"
     if word == '+':
         return plus()
     elif word == '-':
@@ -148,52 +152,78 @@ def parse_word_as_op(word):
     elif word == '.':
         return dump()
     else:
-        return push(int(word)) # Throws automatic error if can't parse.
+        try:
+            return push(int(word)) # Throws automatic error if can't parse.
+        except ValueError as err:
+            print("%s:%d:%d: %s" % (file_path, row, col, err)) 
+            exit(1)
+
+# Lexer functions
+def find_col(line, start, predicate):
+    while start < len(line) and not predicate(line[start]):
+        start += 1
+    return start
+
+def lex_line(line):
+    col = find_col(line, 0, lambda x: not x.isspace()) # Advance until no space found
+    while col < len(line):
+        col_end = find_col(line, col, lambda x: x.isspace()) # Advance until space found
+        yield (col, line[col:col_end]) # Partial return, interesting
+        col = find_col(line, col_end, lambda x: not x.isspace()) # Keep advancing until next space
+
+def lex_file(file_path):
+    with open(file_path, "r") as f:
+        return[(file_path, row, col, token)
+            for (row, line) in enumerate(f.readlines())
+            for (col, token) in lex_line(line)]
 
 # Load source code
 def load_program_from_file(file_path):
-    with open(file_path, "r") as f:
-        # List comprehension, parse into operation, as split into words by split()
-        # Trims \n automatically
-        return [parse_word_as_op(word) for word in f.read().split()]
-
-# Returns two arguments in a tuple, shifting away the first list item
-def uncons(xs):
-    return (xs[0], xs[1:])
-
+    return [parse_token_as_op(token) for token in lex_file(file_path)]
+    
 if __name__ == '__main__':
     argv = sys.argv
 
     assert len(argv) >= 1, "Error, sys.argv is not picking up input"
 
-    #argv = argv[1:] # pop / remove the program name "porth.py"
-    (program_name, argv) = uncons(argv)
+    # Check uncons method from lesson 1 for doing this with tuples
+    # Apparently this works too?
+
+    compiler_name, *argv = argv
     # Check
     if len(argv) < 1:
         print("Error: No subcommand provided.")
-        usage(program_name)
+        usage(compiler_name)
         exit(1)
     # Parse rest
-    (subcommand, argv) = uncons(argv) # extract subcommand
+    subcommand, *argv = argv# extract subcommand
 
     if subcommand == "sim":
         if len(argv) < 1:
-            usage(program_name)
+            usage(compiler_name)
             print("Error: No input file provided for the simulation")
             exit(1)
-        (program_path, argv) = uncons(argv) # extract file to input
+        program_path, *argv = argv # extract file to input
         program = load_program_from_file(program_path)
         simulate_program(program)
     elif subcommand == "com":
         if len(argv) < 1:
-            usage(program_name)
+            usage(compiler_name)
             print("Error: No input file provided for the compiler")
             exit(1)
-        (program_path, argv) = uncons(argv)
+        program_path, *argv = argv
         program = load_program_from_file(program_path)
-        compile_program(program, "output.asm")
-        call_cmd(["nasm", "-felf64", "output.asm"])
-        call_cmd(["ld", "output.o", "-o", "output"])
+        porth_ext = '.porth'
+        basename = path.basename(program_path)
+        if basename.endswith(porth_ext):
+            basename = basename[:-len(porth_ext)]
+        print("[INFO] Generating %s" % (basename + ".asm"))
+        compile_program(program, basename + ".asm")
+        call_echoed(["nasm", "-felf64", basename + ".asm"])
+        call_echoed(["ld", basename + ".o", "-o", basename])
+    elif subcommand == "help":
+        usage(compiler_name)
+        exit(0)
     else:
         print("Error: Unknown subcommand %s" % (subcommand))
         usage(program)
