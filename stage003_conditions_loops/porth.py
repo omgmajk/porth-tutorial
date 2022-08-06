@@ -27,6 +27,7 @@ OP_EQUAL = iota()
 OP_DUMP = iota()
 OP_IF = iota()
 OP_END = iota()
+OP_ELSE = iota()
 COUNT_OPS = iota() # total count
 
 # Returns "opcodes" in tuple form so we can work with them 
@@ -51,12 +52,15 @@ def iff():
 def end():
     return (OP_END, )
 
+def elze():
+    return (OP_ELSE, )
+
 # Simulate, or "run" the program without compiling
 def simulate_program(program):
     stack = []
     ip = 0
     while ip < len(program):
-        assert COUNT_OPS == 7, "Exhaustive handling of operations in simulation."
+        assert COUNT_OPS == 8, "Exhaustive handling of operations in simulation."
         op = program[ip]
         if op[0] == OP_PUSH:
             stack.append(op[1]) # PUSH instruction
@@ -81,9 +85,12 @@ def simulate_program(program):
             if a == 0:
                 # jump to end
                 assert len(op) >= 2, "'if' instruction does not have reference to the end of it's block."
-                ip = op[1]
+                ip = op[1]           # Remember to call crossreference_block() here to simulate
             else:
                 ip += 1
+        elif op[0] == OP_ELSE:
+            assert len(op) >= 2, "'else' instruction does not have reference to the end of it's block." # Same
+            ip = op[1]
         elif op[0] == OP_END:
             ip += 1
         elif op[0] == OP_DUMP:
@@ -140,7 +147,7 @@ def compile_program(program, out_file_path):
         out.write("_start:\n")
         for ip in range(len(program)):
             op = program[ip] # Refactoring to be able to store values
-            assert COUNT_OPS == 7, "Exhaustive handling of ops in compilation"
+            assert COUNT_OPS == 8, "Exhaustive handling of ops in compilation"
             if op[0] == OP_PUSH:
                 out.write("    ;; -- push --\n")
                 out.write(f"    push  {op[1]}\n")
@@ -173,8 +180,13 @@ def compile_program(program, out_file_path):
                 out.write("    ;; -- if --\n")
                 out.write("    pop rax\n") # Pop current value ontop of stack
                 out.write("    test rax, rax\n") # Check if equal to zero
-                assert len(op) == 2, "From compilation: If instruction does not have a reference to the end of it's block. Call crossreference_blocks()."
+                assert len(op) == 2, "From compilation: 'if' instruction does not have a reference to the end of it's block. Call crossreference_blocks()."
                 out.write("    jz addr_%d\n" % op[1]) # Jump to address available in op, if equal to zero
+            elif op[0] == OP_ELSE:
+                out.write("    ;; -- else --\n")
+                assert len(op) >= 2, "From compilation: 'else' instruction does not have a reference to the end of it's block. Call crossreference_blocks()."
+                out.write("     jmp addr_%d\n" % op[1]) # Just jump to addr that sits in tuple
+                out.write("addr_%d:\n" % (ip + 1)) # Addr that follows if
             elif op[0] == OP_END:
                 out.write("addr_%d:\n" % ip) # End to jump to, not indented
             else:
@@ -197,7 +209,7 @@ def usage(compiler_name):
 
 def parse_token_as_op(token):
     (file_path, row, col, word) = token # Destructuring an enumeration?
-    assert COUNT_OPS == 7, "Exhaustive op handling in parse_token_as_op"
+    assert COUNT_OPS == 8, "Exhaustive op handling in parse_token_as_op"
     if word == '+':
         return plus()
     elif word == '-':
@@ -210,6 +222,8 @@ def parse_token_as_op(token):
         return iff()
     elif word == 'end':
         return end()
+    elif word == 'else':
+        return elze()
     else:
         try:
             return push(int(word)) # Throws automatic error if can't parse.
@@ -222,13 +236,25 @@ def crossreference_blocks(program):
     stack = []
     for ip in range(len(program)):
         op = program[ip]
-        assert COUNT_OPS == 7, "Exhaustive handling of ops in crossreference_blocks."
+        assert COUNT_OPS == 8, "Exhaustive handling of ops in crossreference_blocks."
+                               # Keep in mind that not all of the ops needs to be handled
+                               # here, just the ones that form blocks.
         if op[0] == OP_IF:
             stack.append(ip) # Current address to stack
+        elif op[0] == OP_ELSE:
+            if_ip = stack.pop()
+            assert program[if_ip][0] == OP_IF, "'else' can only be used in if blocks"
+            program[if_ip] = (OP_IF, ip + 1) # Current address, just like at end, +1 to skip else instruction itself so that we execute the else block because otherwise else just jumps to end
+            stack.append(ip) # Keep track of the new block that just formed starting address
         elif op[0] == OP_END:
-            if_ip = stack.pop() # Pop that address
-            assert program[if_ip][0] == OP_IF, "End can only close if blocks for now."
-            program[if_ip] = (OP_IF, ip)
+            block_ip = stack.pop() # Pop that address # Rewriting to cover whiles and such
+            if program[block_ip][0] == OP_IF or program[block_ip][0] == OP_ELSE:
+                program[block_ip] = (program[block_ip][0], ip) # Set to right tuple
+            else:
+                #print(program[block_ip]) # Keeping debug info in this version for resource purposes
+                #print("(%d, %d)" % (OP_IF, OP_ELSE))
+                #print(OP_IF)
+                assert False, "'end' can only close if-else blocks for now."
     return program
 
 # Lexer functions
