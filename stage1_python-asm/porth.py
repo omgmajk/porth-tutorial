@@ -17,14 +17,14 @@ def iota(reset=False):
     
     return result
 
-# Assembly operations, enums
+# Assembly operations, enums, sort of
 OP_PUSH = iota(True)
 OP_PLUS = iota()
 OP_MINUS = iota()
 OP_DUMP = iota()
 COUNT_OPS = iota() # total count
 
-
+# Returns "opcodes" in tuple form so we can work with them 
 def push(x):
     return (OP_PUSH, x) # operation, value
 
@@ -37,6 +37,7 @@ def minus():
 def dump():
     return (OP_DUMP, )
 
+# Simulate, or "run" the program without compiling
 def simulate_program(program):
     stack = []
     for op in program:
@@ -56,7 +57,8 @@ def simulate_program(program):
             print(a)
         else:
             assert False, "unreachable"
-         
+
+# Compile the program to assembly
 def compile_program(program, out_file_path):
     # Generate assembly
     with open(out_file_path, "w") as out:
@@ -126,44 +128,73 @@ def compile_program(program, out_file_path):
         out.write("    mov  rdi, 0\n")
         out.write("    syscall\n")
 
-# Push two numbers to stack and print, simple test case
-program = [
-    push(35), 
-    push(34), 
-    plus(), 
-    dump(),
-    push(420),
-    dump(),
-    push(10),
-    push(9), 
-    minus(), # Can't handle negative numbers at the moment, so order here matters
-    dump()
-]
+# Print usage information
+def usage(program):
+    print("Usage: %s <subcommand> [args]" % program)
+    print("     sim <file>        Simulate the program")
+    print("     com <file>        Compile the program")
 
-def usage():
-    print("Usage: porth <subcommand> [args]")
-    print("     sim         Simulate the program")
-    print("     com         Compile the program")
-
+# Call external programs and print a joined list
 def call_cmd(cmd):
     print(" ".join(cmd))
     subprocess.call(cmd)
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Error: No sucommand provided.")
-        usage()
-        exit(1)
+def parse_word_as_op(word):
+    assert COUNT_OPS == 4, "Exhaustive op handling in parse_word_as_op"
+    if word == '+':
+        return plus()
+    elif word == '-':
+        return minus()
+    elif word == '.':
+        return dump()
+    else:
+        return push(int(word)) # Throws automatic error if can't parse.
 
-    subcommand = sys.argv[1]
+# Load source code
+def load_program_from_file(file_path):
+    with open(file_path, "r") as f:
+        # List comprehension, parse into operation, as split into words by split()
+        # Trims \n automatically
+        return [parse_word_as_op(word) for word in f.read().split()]
+
+# Returns two arguments in a tuple, shifting away the first list item
+def uncons(xs):
+    return (xs[0], xs[1:])
+
+if __name__ == '__main__':
+    argv = sys.argv
+
+    assert len(argv) >= 1, "Error, sys.argv is not picking up input"
+
+    #argv = argv[1:] # pop / remove the program name "porth.py"
+    (program_name, argv) = uncons(argv)
+    # Check
+    if len(argv) < 1:
+        print("Error: No subcommand provided.")
+        usage(program_name)
+        exit(1)
+    # Parse rest
+    (subcommand, argv) = uncons(argv) # extract subcommand
 
     if subcommand == "sim":
+        if len(argv) < 1:
+            usage(program_name)
+            print("Error: No input file provided for the simulation")
+            exit(1)
+        (program_path, argv) = uncons(argv) # extract file to input
+        program = load_program_from_file(program_path)
         simulate_program(program)
     elif subcommand == "com":
+        if len(argv) < 1:
+            usage(program_name)
+            print("Error: No input file provided for the compiler")
+            exit(1)
+        (program_path, argv) = uncons(argv)
+        program = load_program_from_file(program_path)
         compile_program(program, "output.asm")
         call_cmd(["nasm", "-felf64", "output.asm"])
         call_cmd(["ld", "output.o", "-o", "output"])
     else:
         print("Error: Unknown subcommand %s" % (subcommand))
-        usage()
+        usage(program)
         exit(1)
