@@ -19,11 +19,14 @@ def iota(reset=False):
     
     return result
 
-# Assembly operations, enums, sort of
+# Assembly operations
 OP_PUSH = iota(True)
 OP_PLUS = iota()
 OP_MINUS = iota()
+OP_EQUAL = iota()
 OP_DUMP = iota()
+OP_IF = iota()
+OP_END = iota()
 COUNT_OPS = iota() # total count
 
 # Returns "opcodes" in tuple form so we can work with them 
@@ -36,27 +39,57 @@ def plus():
 def minus():
     return (OP_MINUS, )
 
+def equal():
+    return (OP_EQUAL, )
+
 def dump():
     return (OP_DUMP, )
+
+def iff():
+    return (OP_IF, )
+
+def end():
+    return (OP_END, )
 
 # Simulate, or "run" the program without compiling
 def simulate_program(program):
     stack = []
-    for op in program:
-        assert COUNT_OPS == 4, "Exhaustive handling of operations in simulation."
+    ip = 0
+    while ip < len(program):
+        assert COUNT_OPS == 7, "Exhaustive handling of operations in simulation."
+        op = program[ip]
         if op[0] == OP_PUSH:
             stack.append(op[1]) # PUSH instruction
+            ip += 1
         elif op[0] == OP_PLUS:
             a = stack.pop()
             b = stack.pop()
             stack.append(a + b) # ADD instruction
+            ip += 1
         elif op[0] == OP_MINUS:
             a = stack.pop()
             b = stack.pop()
             stack.append(b - a) # SUB instruction
+            ip += 1
+        elif op[0] == OP_EQUAL:
+            a = stack.pop()
+            b = stack.pop()
+            stack.append(int(a == b)) # Returns boolean, cast to int
+            ip += 1
+        elif op[0] == OP_IF:
+            a = stack.pop()
+            if a == 0:
+                # jump to end
+                assert len(op) >= 2, "'if' instruction does not have reference to the end of it's block."
+                ip = op[1]
+            else:
+                ip += 1
+        elif op[0] == OP_END:
+            ip += 1
         elif op[0] == OP_DUMP:
             a = stack.pop() # Just print results of stack
             print(a)
+            ip += 1
         else:
             assert False, "unreachable"
 
@@ -64,6 +97,8 @@ def simulate_program(program):
 def compile_program(program, out_file_path):
     # Generate assembly
     with open(out_file_path, "w") as out:
+        # Boilerplate
+        out.write("BITS 64\n")
         out.write("segment .text\n")
         # dump() - start
         out.write("dump:\n")
@@ -103,8 +138,9 @@ def compile_program(program, out_file_path):
         # _start() - start
         out.write("global _start\n")
         out.write("_start:\n")
-        for op in program:
-            assert COUNT_OPS == 4, "Exhaustive handling of ops in compilation"
+        for ip in range(len(program)):
+            op = program[ip] # Refactoring to be able to store values
+            assert COUNT_OPS == 7, "Exhaustive handling of ops in compilation"
             if op[0] == OP_PUSH:
                 out.write("    ;; -- push --\n")
                 out.write(f"    push  {op[1]}\n")
@@ -112,18 +148,35 @@ def compile_program(program, out_file_path):
                 out.write("    ;; -- plus --\n")
                 out.write("    pop  rax\n")
                 out.write("    pop  rbx\n")
-                out.write("    add  rax, rbx\n")
+                out.write("    add  rax, rbx\n") # Add two numbers present in rax, rbx
                 out.write("    push rax\n")
             elif op[0] == OP_MINUS:
                 out.write("    ;; -- minus --\n")
                 out.write("    pop  rax\n")
                 out.write("    pop  rbx\n")
-                out.write("    sub  rbx, rax\n")
+                out.write("    sub  rbx, rax\n") # Sub rbx with rax
                 out.write("    push rbx\n")
+            elif op[0] == OP_EQUAL:
+                out.write("    ;; -- equal --\n")
+                out.write("    mov rcx, 0\n") # fill rcx with 0
+                out.write("    mov rdx, 1\n") 
+                out.write("    pop rax\n")
+                out.write("    pop rbx\n")
+                out.write("    cmp rax, rbx\n") 
+                out.write("    cmove rcx, rdx\n") # Move 1 into rcx if rax and rbx are eql
+                out.write("    push rcx\n") # Push out result
             elif op[0] == OP_DUMP:
                 out.write("    ;; -- dump --\n")
                 out.write("    pop  rdi\n")
-                out.write("    call dump\n")
+                out.write("    call dump\n") # Calls the dump function which calls write
+            elif op[0] == OP_IF:
+                out.write("    ;; -- if --\n")
+                out.write("    pop rax\n") # Pop current value ontop of stack
+                out.write("    test rax, rax\n") # Check if equal to zero
+                assert len(op) == 2, "From compilation: If instruction does not have a reference to the end of it's block. Call crossreference_blocks()."
+                out.write("    jz addr_%d\n" % op[1]) # Jump to address available in op, if equal to zero
+            elif op[0] == OP_END:
+                out.write("addr_%d:\n" % ip) # End to jump to, not indented
             else:
                 assert False, "unreachable"
         out.write("    mov  rax, 60\n") # syscall for exit
@@ -144,19 +197,39 @@ def usage(compiler_name):
 
 def parse_token_as_op(token):
     (file_path, row, col, word) = token # Destructuring an enumeration?
-    assert COUNT_OPS == 4, "Exhaustive op handling in parse_token_as_op"
+    assert COUNT_OPS == 7, "Exhaustive op handling in parse_token_as_op"
     if word == '+':
         return plus()
     elif word == '-':
         return minus()
     elif word == '.':
         return dump()
+    elif word == '=':
+        return equal()
+    elif word == 'if':
+        return iff()
+    elif word == 'end':
+        return end()
     else:
         try:
             return push(int(word)) # Throws automatic error if can't parse.
         except ValueError as err:
             print("%s:%d:%d: %s" % (file_path, row, col, err)) 
             exit(1)
+
+# Handling blocks
+def crossreference_blocks(program):
+    stack = []
+    for ip in range(len(program)):
+        op = program[ip]
+        assert COUNT_OPS == 7, "Exhaustive handling of ops in crossreference_blocks."
+        if op[0] == OP_IF:
+            stack.append(ip) # Current address to stack
+        elif op[0] == OP_END:
+            if_ip = stack.pop() # Pop that address
+            assert program[if_ip][0] == OP_IF, "End can only close if blocks for now."
+            program[if_ip] = (OP_IF, ip)
+    return program
 
 # Lexer functions
 def find_col(line, start, predicate):
@@ -171,15 +244,23 @@ def lex_line(line):
         yield (col, line[col:col_end]) # Partial return, interesting
         col = find_col(line, col_end, lambda x: not x.isspace()) # Keep advancing until next space
 
+# Old function
 def lex_file(file_path):
     with open(file_path, "r") as f:
-        return[(file_path, row, col, token)
-            for (row, line) in enumerate(f.readlines())
-            for (col, token) in lex_line(line)]
+        return [(file_path, row, col, token)
+                for (row, line) in enumerate(f.readlines())
+                for (col, token) in lex_line(line)]
 
+""" Unsure change?
+def lex_file(file_path):
+    with open(file_path, "r") as f:
+        for (row, line) in enumerate(f.readlines()):
+            for (col, token) in lex_line(line):
+                yield (file_path, row, col, token)
+"""
 # Load source code
 def load_program_from_file(file_path):
-    return [parse_token_as_op(token) for token in lex_file(file_path)]
+    return crossreference_blocks([parse_token_as_op(token) for token in lex_file(file_path)])
     
 if __name__ == '__main__':
     argv = sys.argv
