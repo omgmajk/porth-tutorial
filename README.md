@@ -13,6 +13,11 @@ https://www.youtube.com/watch?v=8QP2fDBIxjM
   ./porth.py com
   ./output
 ```
+Examples:
+ 
+```console
+  ./porth.py com ./examples/test.porth
+```
 
 
 Tutorial will be commited in stages where the language is redesigned to keep track of old things that might still be interesting.
