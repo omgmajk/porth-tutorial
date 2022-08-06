@@ -7,7 +7,7 @@ It's like Forth but in Python. But I don't know Forth. Some sort of stack-based 
 
 ## Tutorial 1, up and running
 
-Folder stage1_python-asm:
+Folder stage001_python-asm:
 
 "Making Programming Language in Python — Porth Ep.01"
 https://www.youtube.com/watch?v=8QP2fDBIxjM
@@ -27,9 +27,11 @@ Examples:
 
 Tutorial will be commited in stages where the language is redesigned to keep track of old things that might still be interesting.
 
-## Tutorial 2, 
+## Tutorial 2, simple lexer 
 
-Folder stage2_python...
+Folder stage002_simple_lexer
+
+Error reporting now works, a simple implemented lexer and some extra C and Python code to look at. Plus a faulty porth example for testing error reporting.
 
 "Python List Comprehension for Better Error Reporting in My Language — Porth Ep.02"
 https://www.youtube.com/watch?v=Gla_7umYcPQ
