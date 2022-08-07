@@ -2,12 +2,11 @@
 
 import sys
 import subprocess
-import shlex # Simple lexical analysis
+import shlex
 from os import path
 
 iota_counter = 0
 
-# Emulate enums from golang
 def iota(reset=False):
     global iota_counter # global so we can reset it, if we put it outside of fun doesnt work
 
@@ -28,7 +27,14 @@ OP_DUMP = iota()
 OP_IF = iota()
 OP_END = iota()
 OP_ELSE = iota()
-COUNT_OPS = iota() # total count
+OP_DUP = iota()
+OP_GT = iota() # Greater sign
+COUNT_OPS = iota()
+
+# TODO:
+# OP_LT
+# OP_DO
+# OP_WHILE
 
 # Returns "opcodes" in tuple form so we can work with them 
 def push(x):
@@ -55,12 +61,18 @@ def end():
 def elze():
     return (OP_ELSE, )
 
+def dup():
+    return (OP_DUP, )
+
+def gt():
+    return (OP_GT, )
+
 # Simulate, or "run" the program without compiling
 def simulate_program(program):
     stack = []
     ip = 0
     while ip < len(program):
-        assert COUNT_OPS == 8, "Exhaustive handling of operations in simulation."
+        assert COUNT_OPS == 10, "Exhaustive handling of operations in simulation."
         op = program[ip]
         if op[0] == OP_PUSH:
             stack.append(op[1]) # PUSH instruction
@@ -96,6 +108,21 @@ def simulate_program(program):
         elif op[0] == OP_DUMP:
             a = stack.pop() # Just print results of stack
             print(a)
+            ip += 1
+        elif op[0] == OP_DUP:
+            a = stack.pop()
+            stack.append(a)
+            stack.append(a) # Push back on stack twice
+            ip += 1
+        elif op[0] == OP_GT:
+            """ Commenting out my solution for now because I'm thinking like an idiot
+            b = stack.pop() # I don't get why this is a problem but have to pop backwards
+            a = stack.pop()
+            stack.append(a if a > b else b) # This is a weird fcking ternary
+            """
+            a = stack.pop()
+            b = stack.pop()
+            stack.append(int(a < b))
             ip += 1
         else:
             assert False, "unreachable"
@@ -147,7 +174,7 @@ def compile_program(program, out_file_path):
         out.write("_start:\n")
         for ip in range(len(program)):
             op = program[ip] # Refactoring to be able to store values
-            assert COUNT_OPS == 8, "Exhaustive handling of ops in compilation"
+            assert COUNT_OPS == 10, "Exhaustive handling of ops in compilation"
             if op[0] == OP_PUSH:
                 out.write("    ;; -- push --\n")
                 out.write(f"    push  {op[1]}\n")
@@ -171,24 +198,38 @@ def compile_program(program, out_file_path):
                 out.write("    pop rbx\n")
                 out.write("    cmp rax, rbx\n") 
                 out.write("    cmove rcx, rdx\n") # Move 1 into rcx if rax and rbx are eql
-                out.write("    push rcx\n") # Push out result
+                out.write("    push  rcx\n") # Push out result
             elif op[0] == OP_DUMP:
                 out.write("    ;; -- dump --\n")
                 out.write("    pop  rdi\n")
                 out.write("    call dump\n") # Calls the dump function which calls write
             elif op[0] == OP_IF:
                 out.write("    ;; -- if --\n")
-                out.write("    pop rax\n") # Pop current value ontop of stack
+                out.write("    pop  rax\n") # Pop current value ontop of stack
                 out.write("    test rax, rax\n") # Check if equal to zero
                 assert len(op) == 2, "From compilation: 'if' instruction does not have a reference to the end of it's block. Call crossreference_blocks()."
-                out.write("    jz addr_%d\n" % op[1]) # Jump to address available in op, if equal to zero
+                out.write("    jz  addr_%d\n" % op[1]) # Jump to address available in op, if equal to zero
             elif op[0] == OP_ELSE:
                 out.write("    ;; -- else --\n")
                 assert len(op) >= 2, "From compilation: 'else' instruction does not have a reference to the end of it's block. Call crossreference_blocks()."
-                out.write("     jmp addr_%d\n" % op[1]) # Just jump to addr that sits in tuple
+                out.write("     jmp  addr_%d\n" % op[1]) # Just jump to addr that sits in tuple
                 out.write("addr_%d:\n" % (ip + 1)) # Addr that follows if
             elif op[0] == OP_END:
                 out.write("addr_%d:\n" % ip) # End to jump to, not indented
+            elif op[0] == OP_DUP:
+                out.write("    ;; -- dup --\n")
+                out.write("    pop  rax\n")
+                out.write("    push rax\n") # Pop and push twice, like in simulation
+                out.write("    push rax\n")
+            elif op[0] == OP_GT:
+                out.write("    ;; -- gt --\n")
+                out.write("    mov rcx, 0\n")
+                out.write("    mov rdx, 1\n")
+                out.write("    pop rbx\n") # Pop different order from equal, because number order matters here
+                out.write("    pop rax\n") # Mostly because how we add rcx and rdx in above order
+                out.write("    cmp rax, rbx\n")
+                out.write("    cmovg rcx, rdx\n")
+                out.write("    push rcx\n")
             else:
                 assert False, "unreachable"
         out.write("    mov  rax, 60\n") # syscall for exit
@@ -209,7 +250,7 @@ def usage(compiler_name):
 
 def parse_token_as_op(token):
     (file_path, row, col, word) = token # Destructuring an enumeration?
-    assert COUNT_OPS == 8, "Exhaustive op handling in parse_token_as_op"
+    assert COUNT_OPS == 10, "Exhaustive op handling in parse_token_as_op"
     if word == '+':
         return plus()
     elif word == '-':
@@ -224,6 +265,10 @@ def parse_token_as_op(token):
         return end()
     elif word == 'else':
         return elze()
+    elif word == 'dup':
+        return dup()
+    elif word == '>':
+        return gt()
     else:
         try:
             return push(int(word)) # Throws automatic error if can't parse.
@@ -236,7 +281,7 @@ def crossreference_blocks(program):
     stack = []
     for ip in range(len(program)):
         op = program[ip]
-        assert COUNT_OPS == 8, "Exhaustive handling of ops in crossreference_blocks."
+        assert COUNT_OPS == 10, "Exhaustive handling of ops in crossreference_blocks."
                                # Keep in mind that not all of the ops needs to be handled
                                # here, just the ones that form blocks.
         if op[0] == OP_IF:
@@ -251,9 +296,6 @@ def crossreference_blocks(program):
             if program[block_ip][0] == OP_IF or program[block_ip][0] == OP_ELSE:
                 program[block_ip] = (program[block_ip][0], ip) # Set to right tuple
             else:
-                #print(program[block_ip]) # Keeping debug info in this version for resource purposes
-                #print("(%d, %d)" % (OP_IF, OP_ELSE))
-                #print(OP_IF)
                 assert False, "'end' can only close if-else blocks for now."
     return program
 
@@ -270,20 +312,12 @@ def lex_line(line):
         yield (col, line[col:col_end]) # Partial return, interesting
         col = find_col(line, col_end, lambda x: not x.isspace()) # Keep advancing until next space
 
-# Old function
 def lex_file(file_path):
     with open(file_path, "r") as f:
         return [(file_path, row, col, token)
                 for (row, line) in enumerate(f.readlines())
                 for (col, token) in lex_line(line)]
 
-""" Unsure change?
-def lex_file(file_path):
-    with open(file_path, "r") as f:
-        for (row, line) in enumerate(f.readlines()):
-            for (col, token) in lex_line(line):
-                yield (file_path, row, col, token)
-"""
 # Load source code
 def load_program_from_file(file_path):
     return crossreference_blocks([parse_token_as_op(token) for token in lex_file(file_path)])
@@ -303,7 +337,7 @@ if __name__ == '__main__':
         usage(compiler_name)
         exit(1)
     # Parse rest
-    subcommand, *argv = argv# extract subcommand
+    subcommand, *argv = argv # extract subcommand
 
     if subcommand == "sim":
         if len(argv) < 1:
@@ -333,5 +367,5 @@ if __name__ == '__main__':
         exit(0)
     else:
         print("Error: Unknown subcommand %s" % (subcommand))
-        usage(program)
+        usage(compiler_name) # Changed this from program, program not implemented.
         exit(1)
