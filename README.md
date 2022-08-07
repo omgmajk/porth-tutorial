@@ -37,7 +37,8 @@ Error reporting now works, a simple implemented lexer and some extra C and Pytho
 https://www.youtube.com/watch?v=Gla_7umYcPQ
 
 ## Tutorial 3, conditions and loops
-Folder stage003_conditions_loops
+Folder  stage003_if-else
+Folder2 stage004_while-do
 
 Some description
 
